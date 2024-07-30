@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ChatGroq with LLAMA3 DEMO</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            min-height: 100vh;
+            background-color: #f0f0f0;
+        }
+        .container {
+            display: flex;
+            flex-direction: column;
+            margin: 20px;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden; /* Ensure content doesn't overflow */
+        }
+        .upload-section,
+        .search-section {
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .upload-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            border-bottom: 2px solid #ddd; /* Add a border to separate from the search results */
+        }
+        .search-section {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .upload-section h1,
+        .search-section h2 {
+            margin-top: 0;
+        }
+        form {
+            margin: 20px 0;
+        }
+        input[type="file"],
+        input[type="text"],
+        input[type="submit"] {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #ccc;
+            width: 80%;
+            max-width: 400px;
+        }
+        input[type="submit"] {
+            background: #4caf50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        input[type="submit"]:hover {
+            background: #45a049;
+        }
+        input[type="submit"]:active {
+            background: #388e3c;
+        }
+        .messages {
+            margin: 20px 0;
+            color: #d9534f;
+        }
+        .results {
+            margin-top: 20px;
+            text-align: left;
+            padding: 20px;
+            background: #fff;
+            border-top: 2px solid #ddd;
+            box-sizing: border-box;
+            width: 100%; /* Ensure it takes full width of container */
+            overflow-x: hidden; /* Prevent horizontal scrolling */
+        }
+        .results h2 {
+            margin-top: 0;
+        }
+        .results p {
+            background: #e9e9e9;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 0;
+        }
+        .results hr {
+            margin: 10px 0;
+        }
+        .progress-container {
+            margin: 20px 0;
+            text-align: center;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .spinner {
+            border: 4px solid rgba(0, 0, 0, 0.1);
+            border-left: 4px solid #4caf50;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+            margin-right: 10px;
+        }
+        .progress {
+            width: 80%;
+            max-width: 400px;
+            height: 20px;
+            background: #e9e9e9;
+            border-radius: 5px;
+            overflow: hidden;
+            position: relative;
+        }
+        .progress-bar {
+            width: 50;
+            height: 100%;
+            background: #4caf50;
+            text-align: center;
+            color: white;
+            line-height: 20px;
+            transition: width 0.4s;
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+    <script src="https://cdn.socket.io/4.0.0/socket.io.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Upload Section -->
+        <div class="upload-section">
+            <h1>ChatGroq with LLAMA3 DEMO</h1>
+            <h2>Upload a single-page PDF file (up to 3 MB)</h2>
+            <form id="uploadForm" method="post" enctype="multipart/form-data">
+                <input type="file" name="file">
+                <input type="submit" value="Upload">
+            </form>
+            <!-- Progress Bar and Spinner -->
+            <div class="progress-container">
+                <div class="spinner" id="spinner" style="display: none;"></div>
+                <div class="progress">
+                    <div class="progress-bar" id="progressBar"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Search Section -->
+        <div class="search-section">
+            <h1>Now you can search Document</h1>
+            <h2>You can search from here</h2>
+            <form method="post">
+                <input type="text" name="prompt" placeholder="Enter your Question from Documents">
+                <input type="submit" value="Search">
+            </form>
+            <!-- Display Flash Messages -->
+            <div class="messages">
+                {% with messages = get_flashed_messages() %}
+                    {% if messages %}
+                        <ul>
+                        {% for message in messages %}
+                            <li>{{ message }}</li>
+                        {% endfor %}
+                        </ul>
+                    {% endif %}
+                {% endwith %}
+            </div>
+        </div>
+        <!-- Display Search Results -->
+        <div class="results">
+            {% if response %}
+                <h2>Search Results</h2>
+                <p>Response time: {{ response_time }}</p>
+                <p>Answer: {{ response }}</p>
+                <h3>Document Similarity Search</h3>
+                {% for doc in context %}
+                    <p>{{ doc.page_content }}</p>
+                    <hr>
+                {% endfor %}
+            {% endif %}
+        </div>
+    </div>
+
+    <script>
+        var socket = io();
+        var progressBar = document.getElementById('progressBar');
+        var spinner = document.getElementById('spinner');
+
+        socket.on('progress', function(data) {
+            if (data.done) {
+                progressBar.style.width = '100%';
+                progressBar.innerText = '100%';
+                spinner.style.display = 'none';
+            } else {
+                progressBar.style.width = data.progress + '%';
+                progressBar.innerText = data.message;
+                spinner.style.display = 'inline-block';
+            }
+        });
+
+        document.getElementById('uploadForm').addEventListener('submit', function(e) {
+            e.preventDefault();
+            var formData = new FormData(this);
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', '/upload', true);
+            xhr.onload = function () {
+                if (xhr.status === 200) {
+                    console.log('Upload complete');
+                } else {
+                    console.error('Upload failed');
+                }
+            };
+            xhr.send(formData);
+        });
+    </script>
+</body>
+</html>
